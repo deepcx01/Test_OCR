@@ -1,0 +1,160 @@
+name: OCR Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_source:
+        description: 'Image source: local path, URL, or R2 path (r2://bucket/path)'
+        required: true
+        type: string
+      model:
+        description: 'OCR model to use'
+        required: true
+        default: 'doctr'
+        type: choice
+        options:
+          - doctr
+          - surya
+          - paddle
+      gt_source:
+        description: 'Ground truth source (optional): local path, URL, or R2 path'
+        required: false
+        type: string
+      compare_model:
+        description: 'Second model to compare (optional): doctr, surya, or paddle'
+        required: false
+        type: choice
+        options:
+          - ''
+          - doctr
+          - surya
+          - paddle
+
+env:
+  RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+  OCR_ENDPOINT_URL: ${{ secrets.OCR_ENDPOINT_URL }}
+  R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+  R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+  R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+
+jobs:
+  run-ocr:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          # Install PaddleOCR only if paddle model is selected
+          if [ "${{ inputs.model }}" = "paddle" ] || [ "${{ inputs.compare_model }}" = "paddle" ]; then
+            pip install paddleocr paddlepaddle
+          fi
+      
+      - name: Configure R2 (if using R2 paths)
+        if: contains(inputs.image_source, 'r2://') || contains(inputs.gt_source, 'r2://')
+        run: |
+          # Install minio client
+          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          sudo mv mc /usr/local/bin/
+          
+          # Configure R2 alias
+          mc alias set r2 ${{ env.R2_ENDPOINT }} ${{ env.R2_ACCESS_KEY }} ${{ env.R2_SECRET_KEY }}
+      
+      - name: Run Primary OCR
+        id: primary_ocr
+        run: |
+          mkdir -p outputs
+          
+          python scripts/run_ocr_cli.py \
+            --image "${{ inputs.image_source }}" \
+            --model "${{ inputs.model }}" \
+            --output "outputs/${{ inputs.model }}_output.json" \
+            --output-text "outputs/${{ inputs.model }}_custom_text.txt"
+          
+          echo "output_json=outputs/${{ inputs.model }}_output.json" >> $GITHUB_OUTPUT
+          echo "output_text=outputs/${{ inputs.model }}_custom_text.txt" >> $GITHUB_OUTPUT
+      
+      - name: Run Second Model OCR (if specified)
+        if: inputs.compare_model != ''
+        id: second_ocr
+        run: |
+          python scripts/run_ocr_cli.py \
+            --image "${{ inputs.image_source }}" \
+            --model "${{ inputs.compare_model }}" \
+            --output "outputs/${{ inputs.compare_model }}_output.json" \
+            --output-text "outputs/${{ inputs.compare_model }}_custom_text.txt"
+          
+          echo "output_text=outputs/${{ inputs.compare_model }}_custom_text.txt" >> $GITHUB_OUTPUT
+      
+      - name: Download Ground Truth (if R2 path)
+        if: inputs.gt_source != '' && contains(inputs.gt_source, 'r2://')
+        run: |
+          python scripts/download_from_r2.py \
+            --r2-path "${{ inputs.gt_source }}" \
+            --output "ground_truth/"
+      
+      - name: Compare with Ground Truth
+        if: inputs.gt_source != ''
+        run: |
+          GT_FILE="${{ inputs.gt_source }}"
+          
+          # If it was an R2 path, use the downloaded file
+          if [[ "$GT_FILE" == r2://* ]]; then
+            GT_FILE="ground_truth/$(basename $GT_FILE)"
+          fi
+          
+          echo "## Ground Truth Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "Model: ${{ inputs.model }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          python scripts/compare_outputs.py \
+            --reference "$GT_FILE" \
+            --compare "${{ steps.primary_ocr.outputs.output_text }}" \
+            --output "outputs/gt_comparison.txt" || true
+          
+          cat outputs/gt_comparison.txt >> $GITHUB_STEP_SUMMARY
+      
+      - name: Compare Two Models
+        if: inputs.compare_model != ''
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Model Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "${{ inputs.model }} vs ${{ inputs.compare_model }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          python scripts/compare_outputs.py \
+            --source1 "${{ steps.primary_ocr.outputs.output_text }}" \
+            --source2 "${{ steps.second_ocr.outputs.output_text }}" \
+            --output "outputs/model_comparison.txt" || true
+          
+          cat outputs/model_comparison.txt >> $GITHUB_STEP_SUMMARY
+      
+      - name: Upload Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-outputs-${{ github.run_number }}
+          path: outputs/
+          retention-days: 30
+      
+      - name: Summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Files Generated" >> $GITHUB_STEP_SUMMARY
+          echo "- JSON output: \`outputs/${{ inputs.model }}_output.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Custom text: \`outputs/${{ inputs.model }}_custom_text.txt\`" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ inputs.compare_model }}" ]; then
+            echo "- Second model JSON: \`outputs/${{ inputs.compare_model }}_output.json\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Second model text: \`outputs/${{ inputs.compare_model }}_custom_text.txt\`" >> $GITHUB_STEP_SUMMARY
+          fi
