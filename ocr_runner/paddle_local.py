@@ -19,7 +19,11 @@ def get_paddle_instance() -> 'PaddleOCR':
     if _ocr_instance is None:
         if not PADDLE_AVAILABLE:
             raise ImportError("PaddleOCR is not installed")
-        _ocr_instance = PaddleOCR(use_angle_cls=True, lang='en')
+        _ocr_instance = PaddleOCR(
+            use_angle_cls=True,
+            lang='en',
+            enable_mkldnn=False  # Disable MKLDNN to fix runner crash
+        )
     return _ocr_instance
 
 
