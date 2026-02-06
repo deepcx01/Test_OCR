@@ -164,7 +164,7 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    is_r2 = args.images_folder.startswith("r2://")
+    is_r2 = args.images_folder.startswith(("r2://", "r2/"))
     
     if is_r2:
         image_files = list_r2_folder(args.images_folder)
@@ -175,7 +175,8 @@ def main():
         
         images_to_process = []
         for img in image_files:
-            r2_path = f"{args.images_folder.rstrip('/')}/{img}"
+            folder_cleaned = args.images_folder.replace("r2://", "r2/")
+            r2_path = f"{folder_cleaned.rstrip('/')}/{img}"
             try:
                 local = download_r2_file(r2_path, str(temp_dir))
                 images_to_process.append((local, img))
@@ -193,8 +194,9 @@ def main():
     for local_path, original_name in images_to_process:
         basename = Path(original_name).stem
         
-        if args.gt_folder.startswith("r2://"):
-            gt_r2 = f"{args.gt_folder.rstrip('/')}/{basename}.json"
+        if args.gt_folder.startswith(("r2://", "r2/")):
+            gt_folder_cleaned = args.gt_folder.replace("r2://", "r2/")
+            gt_r2 = f"{gt_folder_cleaned.rstrip('/')}/{basename}.json"
             try:
                 gt_path = download_r2_file(gt_r2, str(output_dir / "temp_gt"))
             except:
