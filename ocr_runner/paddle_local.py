@@ -31,7 +31,22 @@ def run_paddle_ocr(image_path: str, image: Optional[Image.Image] = None):
     """Run PaddleOCR on an image and return OCRResult."""
     from .ocr_router import OCRResult
     
+    import os
+    import sys
+    import traceback
+    
     try:
+        if not os.path.exists(image_path):
+             return OCRResult(
+                model="paddle",
+                custom_text="",
+                text="",
+                words=[],
+                raw_json={},
+                success=False,
+                error=f"File not found: {image_path}"
+            )
+
         ocr = get_paddle_instance()
         logger.info(f"Running PaddleOCR on: {image_path}")
         result = ocr.predict(image_path)
@@ -63,8 +78,8 @@ def run_paddle_ocr(image_path: str, image: Optional[Image.Image] = None):
             success=True
         )
         
-    except Exception as e:
-        logger.error(f"PaddleOCR failed: {e}")
+    except BaseException as e:
+        logger.exception(f"PaddleOCR failed with critical error: {e}")
         return OCRResult(
             model="paddle",
             custom_text="",
@@ -72,5 +87,5 @@ def run_paddle_ocr(image_path: str, image: Optional[Image.Image] = None):
             words=[],
             raw_json={},
             success=False,
-            error=str(e)
+            error=f"Critical Error: {str(e)} | Type: {type(e).__name__}"
         )

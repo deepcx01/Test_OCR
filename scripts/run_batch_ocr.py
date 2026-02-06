@@ -126,9 +126,9 @@ def process_image(
                 }
                 save_custom_text(ocr_result_2.custom_text, Path(output_dir) / f"{basename}_{compare_model}.txt")
         
-    except Exception as e:
-        logger.error(f"Error: {image_name}: {e}")
-        result["error"] = str(e)
+    except BaseException as e:
+        logger.exception(f"Error processing {image_name}: {e}")
+        result["error"] = f"{type(e).__name__}: {str(e)}"
     
     return result
 
