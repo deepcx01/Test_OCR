@@ -20,23 +20,35 @@ from loguru import logger
 def list_r2_folder(r2_path: str) -> List[str]:
     """List image files in an R2 folder."""
     extensions = ['.jpg', '.jpeg', '.png', '.webp']
-    cmd = ["mc", "ls", r2_path.replace("r2://", "r2/")]
+    target_path = r2_path.replace("r2://", "r2/")
+    if not target_path.endswith("/"):
+        target_path += "/"
+    
+    cmd = ["mc", "ls", target_path]
+    logger.info(f"debug: Executing command: {' '.join(cmd)}")
+    
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
         logger.error(f"Failed to list R2 folder: {result.stderr}")
         return []
+        
+    logger.info(f"debug: mc ls output (first 200 chars): {result.stdout[:200]!r}")
     
     files = []
     for line in result.stdout.strip().split('\n'):
         if not line:
             continue
-        parts = line.split()
+        # mc ls output format: [DATE] [TIME] [SIZE] filename
+        # We need to handle filenames with spaces correctly
+        # Split by first 4 parts (date, time, size, ...) then the rest is filename
+        parts = line.split(maxsplit=4)
         if len(parts) >= 4:
             filename = parts[-1]
             if any(filename.lower().endswith(ext) for ext in extensions):
                 files.append(filename)
     
+    logger.info(f"debug: Parsed {len(files)} files: {files[:5]}")
     return sorted(files)
 
 
@@ -91,9 +103,9 @@ def process_image(
                 "correct_words": gt_sim.correct_words,
                 "missing_count": len(gt_sim.missing_words),
             }
-            logger.info(f"  ✅ Match: {gt_sim.similarity_score:.1f}% | Missing: {len(gt_sim.missing_words)}")
+            logger.info(f"  Match: {gt_sim.similarity_score:.1f}% | Missing: {len(gt_sim.missing_words)}")
         except FileNotFoundError:
-            logger.warning(f"  ⚠️ GT not found: {gt_path}")
+            logger.warning(f"  GT not found: {gt_path}")
             result["gt_comparison"] = None
         
         if compare_model:
