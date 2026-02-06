@@ -91,8 +91,9 @@ def process_image(
                 "correct_words": gt_sim.correct_words,
                 "missing_count": len(gt_sim.missing_words),
             }
+            logger.info(f"  ✅ Match: {gt_sim.similarity_score:.1f}% | Missing: {len(gt_sim.missing_words)}")
         except FileNotFoundError:
-            logger.warning(f"GT not found: {gt_path}")
+            logger.warning(f"  ⚠️ GT not found: {gt_path}")
             result["gt_comparison"] = None
         
         if compare_model:
