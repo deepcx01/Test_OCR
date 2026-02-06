@@ -39,12 +39,20 @@ def list_r2_folder(r2_path: str) -> List[str]:
     for line in result.stdout.strip().split('\n'):
         if not line:
             continue
-        # mc ls output format: [DATE] [TIME] [SIZE] filename
-        # We need to handle filenames with spaces correctly
-        # Split by first 4 parts (date, time, size, ...) then the rest is filename
-        parts = line.split(maxsplit=4)
-        if len(parts) >= 4:
-            filename = parts[-1]
+        # mc ls output format: [DATE] [TIME] [SIZE] [STORAGE_CLASS] filename
+        # Example: [2026-02-05 09:34:15 UTC] 391KiB STANDARD Input_1.jpg
+        # We need to split by spaces, but handle filenames with spaces
+        parts = line.split()
+        if len(parts) >= 5:
+            # Index 0-2: Date/Time/Zone
+            # Index 3: Size
+            # Index 4: Storage Class (e.g. STANDARD)
+            # Index 5+: Filename (joined back)
+            
+            # Find the index where the filename likely starts (after STANDARD)
+            start_index = 5
+            filename = " ".join(parts[start_index:])
+            
             if any(filename.lower().endswith(ext) for ext in extensions):
                 files.append(filename)
     
