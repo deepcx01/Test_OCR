@@ -3,32 +3,25 @@ name: OCR Benchmark
 on:
   workflow_dispatch:
     inputs:
-      image_source:
-        description: 'Image source: local path, URL, or R2 path (r2://bucket/path)'
+      images_folder:
+        description: 'R2 folder with images (r2://bucket/path/)'
+        required: true
+        type: string
+      gt_folder:
+        description: 'R2 folder with ground truth JSONs'
         required: true
         type: string
       model:
-        description: 'OCR model to use'
+        description: 'OCR model'
         required: true
         default: 'doctr'
         type: choice
-        options:
-          - doctr
-          - surya
-          - paddle
-      gt_source:
-        description: 'Ground truth source (optional): local path, URL, or R2 path'
-        required: false
-        type: string
+        options: [doctr, surya, paddle]
       compare_model:
-        description: 'Second model to compare (optional): doctr, surya, or paddle'
+        description: 'Second model (optional)'
         required: false
         type: choice
-        options:
-          - ''
-          - doctr
-          - surya
-          - paddle
+        options: ['', doctr, surya, paddle]
 
 env:
   RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -38,15 +31,12 @@ env:
   R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
 
 jobs:
-  run-ocr:
+  benchmark:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -54,107 +44,54 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          # Install PaddleOCR only if paddle model is selected
           if [ "${{ inputs.model }}" = "paddle" ] || [ "${{ inputs.compare_model }}" = "paddle" ]; then
             pip install paddleocr paddlepaddle
           fi
       
-      - name: Configure R2 (if using R2 paths)
-        if: contains(inputs.image_source, 'r2://') || contains(inputs.gt_source, 'r2://')
+      - name: Configure R2
         run: |
-          # Install minio client
           wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          sudo mv mc /usr/local/bin/
-          
-          # Configure R2 alias
-          mc alias set r2 ${{ env.R2_ENDPOINT }} ${{ env.R2_ACCESS_KEY }} ${{ env.R2_SECRET_KEY }}
+          chmod +x mc && sudo mv mc /usr/local/bin/
+          mc alias set r2 $R2_ENDPOINT $R2_ACCESS_KEY $R2_SECRET_KEY
       
-      - name: Run Primary OCR
-        id: primary_ocr
+      - name: Run Batch OCR
         run: |
           mkdir -p outputs
-          
-          python scripts/run_ocr_cli.py \
-            --image "${{ inputs.image_source }}" \
-            --model "${{ inputs.model }}" \
-            --output "outputs/${{ inputs.model }}_output.json" \
-            --output-text "outputs/${{ inputs.model }}_custom_text.txt"
-          
-          echo "output_json=outputs/${{ inputs.model }}_output.json" >> $GITHUB_OUTPUT
-          echo "output_text=outputs/${{ inputs.model }}_custom_text.txt" >> $GITHUB_OUTPUT
+          CMD="python scripts/run_batch_ocr.py"
+          CMD="$CMD --images-folder '${{ inputs.images_folder }}'"
+          CMD="$CMD --gt-folder '${{ inputs.gt_folder }}'"
+          CMD="$CMD --model '${{ inputs.model }}'"
+          CMD="$CMD --output-dir outputs"
+          CMD="$CMD --output-json outputs/results.json"
+          CMD="$CMD --output-summary outputs/summary.txt"
+          [ -n "${{ inputs.compare_model }}" ] && CMD="$CMD --compare-model '${{ inputs.compare_model }}'"
+          eval $CMD
       
-      - name: Run Second Model OCR (if specified)
-        if: inputs.compare_model != ''
-        id: second_ocr
+      - name: Generate HTML Report
         run: |
-          python scripts/run_ocr_cli.py \
-            --image "${{ inputs.image_source }}" \
-            --model "${{ inputs.compare_model }}" \
-            --output "outputs/${{ inputs.compare_model }}_output.json" \
-            --output-text "outputs/${{ inputs.compare_model }}_custom_text.txt"
-          
-          echo "output_text=outputs/${{ inputs.compare_model }}_custom_text.txt" >> $GITHUB_OUTPUT
+          python scripts/generate_batch_html_report.py \
+            --results-json outputs/results.json \
+            --output outputs/report.html \
+            --run-number "${{ github.run_number }}" || true
       
-      - name: Download Ground Truth (if R2 path)
-        if: inputs.gt_source != '' && contains(inputs.gt_source, 'r2://')
+      - name: Upload Report to R2
         run: |
-          python scripts/download_from_r2.py \
-            --r2-path "${{ inputs.gt_source }}" \
-            --output "ground_truth/"
+          BUCKET=$(echo "${{ inputs.images_folder }}" | sed 's|r2://||' | cut -d'/' -f1)
+          REPORT_PATH="reports/run-${{ github.run_number }}/report.html"
+          mc cp outputs/report.html r2/$BUCKET/$REPORT_PATH || true
+          REPORT_URL=$(mc share download --expire=168h r2/$BUCKET/$REPORT_PATH 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
+          [ -n "$REPORT_URL" ] && echo "### 📊 [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
       
-      - name: Compare with Ground Truth
-        if: inputs.gt_source != ''
+      - name: Summary
         run: |
-          GT_FILE="${{ inputs.gt_source }}"
-          
-          # If it was an R2 path, use the downloaded file
-          if [[ "$GT_FILE" == r2://* ]]; then
-            GT_FILE="ground_truth/$(basename $GT_FILE)"
-          fi
-          
-          echo "## Ground Truth Comparison" >> $GITHUB_STEP_SUMMARY
-          echo "Model: ${{ inputs.model }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          python scripts/compare_outputs.py \
-            --reference "$GT_FILE" \
-            --compare "${{ steps.primary_ocr.outputs.output_text }}" \
-            --output "outputs/gt_comparison.txt" || true
-          
-          cat outputs/gt_comparison.txt >> $GITHUB_STEP_SUMMARY
+          echo "## OCR Batch Results" >> $GITHUB_STEP_SUMMARY
+          echo "**Model:** ${{ inputs.model }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat outputs/summary.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
       
-      - name: Compare Two Models
-        if: inputs.compare_model != ''
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Model Comparison" >> $GITHUB_STEP_SUMMARY
-          echo "${{ inputs.model }} vs ${{ inputs.compare_model }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          python scripts/compare_outputs.py \
-            --source1 "${{ steps.primary_ocr.outputs.output_text }}" \
-            --source2 "${{ steps.second_ocr.outputs.output_text }}" \
-            --output "outputs/model_comparison.txt" || true
-          
-          cat outputs/model_comparison.txt >> $GITHUB_STEP_SUMMARY
-      
-      - name: Upload Outputs
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ocr-outputs-${{ github.run_number }}
           path: outputs/
           retention-days: 30
-      
-      - name: Summary
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Files Generated" >> $GITHUB_STEP_SUMMARY
-          echo "- JSON output: \`outputs/${{ inputs.model }}_output.json\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Custom text: \`outputs/${{ inputs.model }}_custom_text.txt\`" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -n "${{ inputs.compare_model }}" ]; then
-            echo "- Second model JSON: \`outputs/${{ inputs.compare_model }}_output.json\`" >> $GITHUB_STEP_SUMMARY
-            echo "- Second model text: \`outputs/${{ inputs.compare_model }}_custom_text.txt\`" >> $GITHUB_STEP_SUMMARY
-          fi

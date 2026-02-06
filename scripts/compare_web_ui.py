@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 OCR Comparison Dashboard - Live Server
-Compare any two sources: Ground Truth, Doctr, Surya, or PaddleOCR
 Generates HTML dynamically without saving files
 """
 
@@ -27,7 +26,7 @@ PADDLE_DIR = BASE_DIR / "PaddleOCR"
 
 PORT = 8084
 
-# Source Configuration - All available text sources
+
 SOURCE_CONFIG = {
     "gt": {
         "dir": GT_DIR,
@@ -63,10 +62,8 @@ SOURCE_CONFIG = {
     },
 }
 
-# Add ocr_benchmark directory to path for imports
 sys.path.insert(0, str(OCR_BENCHMARK_DIR))
 
-# Import from ocr_runner module
 from ocr_runner.similarity_logic import compute_similarity, tokenize
 
 print("Loaded similarity_logic from ocr_runner")

@@ -1,14 +1,6 @@
 """
-OCR Similarity Evaluation Script
-
+OCR Similarity Evaluation Script:
 Compares OCR output text against Ground Truth (GT) text to measure content correctness.
-This script is alignment-agnostic and only penalizes genuinely incorrect or missing words.
-
-Key Features:
-- Word-level strictness: No partial credit for corrupted words
-- Layout agnostic: Line order, spacing, and formatting don't affect scoring
-- Duplicate handling: Counts word occurrences correctly
-- Deterministic and reproducible results
 """
 
 import re
@@ -34,9 +26,6 @@ class SimilarityResult:
 def strip_html_tags(text: str) -> str:
     """
     Remove HTML tags from text.
-    
-    This handles cases where OCR output accidentally includes HTML markup
-    like <span>, <div>, <br>, etc.
     """
     # Remove HTML tags (anything between < and >)
     text = re.sub(r'<[^>]+>', ' ', text)
@@ -63,39 +52,23 @@ def normalize_text(text: str) -> str:
     treated as single tokens, even if OCR adds spaces like "12 , 450".
     Important prefixes like "$500", "#123", "@user" are preserved.
     """
-    # Step 0: Remove any HTML tags from OCR output
+
     text = strip_html_tags(text)
-    
-    # Convert to lowercase
     text = text.lower()
-    
-    # Define joining punctuation - these connect parts of compound values
-    # (numbers with commas, dates with slashes, IDs with hyphens, decimals with periods)
-    joining_punct = [',', '/']
-    
-    # Important characters to PRESERVE (currency, hashtags, mentions)
+    joining_punct = [',', '/']    
     preserve_chars = ['$', '#', '@', '₹', '€', '£', '¥', '%']
     
-    # Step 1: Remove spaces around joining punctuation
-    # This converts "12 , 450" → "12,450" and "INV - 10234" → "INV-10234"
     for p in joining_punct:
-        # Remove any whitespace before and after joining punctuation
         text = re.sub(r'\s*' + re.escape(p) + r'\s*', p, text)
     
-    # Step 2: Remove joining punctuation completely (without adding space)
-    # This converts "12,450" → "12450" and "INV-10234" → "INV10234"
     for p in joining_punct:
         text = text.replace(p, '')
     
-    # Step 3: Replace other punctuation with spaces (but preserve important chars)
     for char in string.punctuation:
         if char not in joining_punct and char not in preserve_chars:
             text = text.replace(char, ' ')
     
-    # Normalize whitespace: replace multiple spaces/tabs/newlines with single space
     text = re.sub(r'\s+', ' ', text)
-    
-    # Strip leading/trailing whitespace
     text = text.strip()
     
     return text
@@ -116,27 +89,18 @@ def tokenize(text: str) -> List[str]:
 def compute_similarity(gt_text: str, ocr_text: str) -> SimilarityResult:
     """
     Compute similarity score between Ground Truth and OCR output.
-    
-    Scoring Philosophy:
-    - Only incorrect or missing words are penalized
-    - Line alignment, order, and spacing do NOT affect scoring
-    - Character-level corruption invalidates the entire word
-    - Exact word matching after normalization
-    
+
     Formula: similarity_score = (correct_gt_words / total_gt_words) * 100
-    
+
     Args:
         gt_text: Ground Truth text
-        ocr_text: OCR output text
-    
+        ocr_text: OCR output text    
     Returns:
         SimilarityResult containing score and detailed breakdown
     """
-    # Tokenize both texts
     gt_words = tokenize(gt_text)
     ocr_words = tokenize(ocr_text)
     
-    # Handle edge case: empty GT
     if not gt_words:
         return SimilarityResult(
             similarity_score=100.0 if not ocr_words else 0.0,
@@ -150,8 +114,7 @@ def compute_similarity(gt_text: str, ocr_text: str) -> SimilarityResult:
     # Create word frequency counters
     gt_counter = Counter(gt_words)
     ocr_counter = Counter(ocr_words)
-    
-    # Track results
+
     correct_count = 0
     missing_words = []
     incorrect_words_list = []
@@ -171,11 +134,11 @@ def compute_similarity(gt_text: str, ocr_text: str) -> SimilarityResult:
                 missing_words.append(word)
                 incorrect_words_list.append((word, "MISSING"))
     
-    # Calculate totals
+  
     total_gt_words = len(gt_words)
     incorrect_count = total_gt_words - correct_count
     
-    # Calculate similarity score
+
     similarity_score = (correct_count / total_gt_words) * 100 if total_gt_words > 0 else 100.0
     
     return SimilarityResult(
@@ -302,44 +265,12 @@ def evaluate_files(
 
 def compute_ocr_similarity(gt_text: str, ocr_text: str) -> float:
     """
-    Simple wrapper that returns similarity as a float (0.0 to 1.0 scale).
-    
-    This is useful for quick similarity checks where you just need the score.
-    For detailed metrics (missing words, correct/incorrect counts), use compute_similarity().
-    
-    Args:
-        gt_text: Ground Truth text string
-        ocr_text: OCR output text string
-    
     Returns:
         Float between 0.0 and 1.0 representing similarity
     """
     result = compute_similarity(gt_text, ocr_text)
     return result.similarity_score / 100.0  # Convert from percentage to 0-1 scale
 
-
-def evaluate_text(gt_text: str, ocr_text: str) -> SimilarityResult:
-    """
-    Evaluate similarity between GT and OCR text strings.
-    
-    Args:
-        gt_text: Ground Truth text string
-        ocr_text: OCR output text string
-    
-    Returns:
-        SimilarityResult with detailed evaluation
-    """
-    result = compute_similarity(gt_text, ocr_text)
-    print_result(result)
-
-    save_result_text(
-        result,
-        output_dir="outputs",
-        gt_file=gt_text,
-        ocr_file=ocr_text
-    )
-    
-    return result
 
 if __name__ == "__main__":
     import sys

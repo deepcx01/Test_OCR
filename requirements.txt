@@ -8,6 +8,3 @@ loguru>=0.7.0
 # PaddleOCR (install separately if needed)
 # paddleocr>=2.7.0
 # paddlepaddle>=2.5.0
-
-# Comparison utilities (already in Utils/)
-# No additional dependencies needed
