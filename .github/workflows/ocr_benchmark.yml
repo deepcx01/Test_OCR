@@ -76,11 +76,21 @@ jobs:
       
       - name: Upload Report to R2
         run: |
-          BUCKET=$(echo "${{ inputs.images_folder }}" | sed 's|r2://||' | cut -d'/' -f1)
+          # Robustly handle r2:// or r2/ prefix
+          CLEAN_PATH=$(echo "${{ inputs.images_folder }}" | sed -E 's|^r2://||; s|^r2/||')
+          BUCKET=$(echo "$CLEAN_PATH" | cut -d'/' -f1)
+          
           REPORT_PATH="reports/run-${{ github.run_number }}/report.html"
-          mc cp outputs/report.html r2/$BUCKET/$REPORT_PATH || true
-          REPORT_URL=$(mc share download --expire=168h r2/$BUCKET/$REPORT_PATH 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
-          [ -n "$REPORT_URL" ] && echo "### 📊 [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
+          
+          # Upload using the alias 'r2' defined in configure step
+          mc cp outputs/report.html "r2/$BUCKET/$REPORT_PATH" || true
+          
+          # Generate presigned URL
+          REPORT_URL=$(mc share download --expire=168h "r2/$BUCKET/$REPORT_PATH" 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
+          
+          if [ -n "$REPORT_URL" ]; then
+             echo "### 📊 [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
+          fi
       
       - name: Summary
         run: |
