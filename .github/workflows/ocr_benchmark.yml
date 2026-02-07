@@ -22,6 +22,11 @@ on:
         required: false
         type: choice
         options: ['', doctr, surya, paddle]
+      runner_label:
+        description: 'Runner label (e.g. ubuntu-latest, self-hosted)'
+        required: true
+        default: 'ubuntu-latest'
+        type: string
 
 env:
   RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -29,10 +34,12 @@ env:
   R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
   R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
   R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+  OMP_NUM_THREADS: 1
+  MKL_NUM_THREADS: 1
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner_label }}
     steps:
       - uses: actions/checkout@v4
       
