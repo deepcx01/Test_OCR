@@ -53,7 +53,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           if [ "${{ inputs.model }}" = "paddle" ] || [ "${{ inputs.compare_model }}" = "paddle" ]; then
-            pip install paddleocr paddlepaddle
+            pip install paddleocr paddlepaddle==3.2.2
           fi
       
       - name: Configure R2
