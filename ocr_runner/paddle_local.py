@@ -21,15 +21,11 @@ def get_paddle_instance() -> 'PaddleOCR':
             raise ImportError("PaddleOCR is not installed")
         
         # Optimization: Use mobile models and limit resources to avoid OOM kills on CI
+        # Note: Newer PaddleOCR versions (Integrated with PaddleX) have a different signature.
         _ocr_instance = PaddleOCR(
-            use_angle_cls=True,
             lang='en',
-            use_gpu=False,
-            total_process_num=1,
-            use_mp=False,
-            enable_mkldnn=False,
-            # Explicitly favor mobile/lighter models if server version is being pulled
-            ocr_version='PP-OCRv4' 
+            ocr_version='PP-OCRv4',
+            use_textline_orientation=True
         )
     return _ocr_instance
 
