@@ -19,10 +19,17 @@ def get_paddle_instance() -> 'PaddleOCR':
     if _ocr_instance is None:
         if not PADDLE_AVAILABLE:
             raise ImportError("PaddleOCR is not installed")
+        
+        # Optimization: Use mobile models and limit resources to avoid OOM kills on CI
         _ocr_instance = PaddleOCR(
             use_angle_cls=True,
             lang='en',
-            enable_mkldnn=False  # Disable MKLDNN to fix runner crash
+            use_gpu=False,
+            total_process_num=1,
+            use_mp=False,
+            enable_mkldnn=False,
+            # Explicitly favor mobile/lighter models if server version is being pulled
+            ocr_version='PP-OCRv4' 
         )
     return _ocr_instance
 

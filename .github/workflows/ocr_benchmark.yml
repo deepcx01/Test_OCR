@@ -61,7 +61,15 @@ jobs:
           wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
           chmod +x mc && sudo mv mc /usr/local/bin/
           mc alias set r2 "$R2_ENDPOINT" "$R2_ACCESS_KEY" "$R2_SECRET_KEY"
-          
+      
+      - name: Memory Monitor
+        run: |
+          while true; do
+            echo "--- Memory Usage ---"
+            free -m
+            sleep 5
+          done &
+      
       - name: Debug R2 Structure
         run: |
           echo "Listing bucket root..."
@@ -70,6 +78,8 @@ jobs:
           mc ls -r r2/aiexperiments/ | head -n 20 || true
       
       - name: Run Batch OCR
+        env:
+          PYTHONMALLOC: "malloc"
         run: |
           mkdir -p outputs
           CMD="python scripts/run_batch_ocr.py"
