@@ -36,6 +36,7 @@ env:
   R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
   OMP_NUM_THREADS: 1
   MKL_NUM_THREADS: 1
+  PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: True
 
 jobs:
   benchmark:
