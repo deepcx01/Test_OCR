@@ -24,10 +24,22 @@ def extract_custom_text(ocr_json: Union[str, Path, Dict]) -> str:
         data = ocr_json
     
     # Handle different JSON structures
+    # Check for direct fields or fields nested in "data"
+    search_keys = ["custom_text", "custom_texts", "text"]
+    
+    # Check top-level first
+    for key in search_keys:
+        if key in data:
+            val = data[key]
+            return "\n".join(val) if isinstance(val, list) else str(val)
+            
+    # Check nested in "data" list
     if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
-        return data["data"][0].get("custom_text", "")
-    elif "custom_text" in data:
-        return data["custom_text"]
+        first_item = data["data"][0]
+        for key in search_keys:
+            if key in first_item:
+                val = first_item[key]
+                return "\n".join(val) if isinstance(val, list) else str(val)
     
     return ""
 

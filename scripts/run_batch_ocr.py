@@ -191,6 +191,18 @@ def main():
         image_files = list_r2_folder(args.images_folder)
         logger.info(f"Found {len(image_files)} images in R2")
         
+        # Debug: List GT folder to verify naming
+        if args.gt_folder.startswith(("r2://", "r2/")):
+            gt_folder = args.gt_folder.replace("r2://", "r2/")
+            logger.info(f"Debug: Listing GT folder: {gt_folder}")
+            try:
+                available_gt = list_r2_folder(gt_folder)
+                logger.info(f"Debug: Found {len(available_gt)} files in GT folder")
+                if available_gt:
+                    logger.info(f"Debug: First few GT files: {available_gt[:5]}")
+            except Exception as e:
+                logger.warning(f"Debug: Failed to list GT folder: {e}")
+        
         temp_dir = output_dir / "temp_images"
         temp_dir.mkdir(exist_ok=True)
         
@@ -210,21 +222,28 @@ def main():
             image_files.extend(images_folder.glob(ext))
         images_to_process = [(str(p), p.name) for p in sorted(image_files)]
         logger.info(f"Found {len(images_to_process)} images locally")
-    
+    # Process images
     results = []
-    for local_path, original_name in images_to_process:
-        basename = Path(original_name).stem
+    
+    temp_gt_dir = output_dir / "temp_gt"
+    temp_gt_dir.mkdir(exist_ok=True)
+    
+    for local_path, image_name in images_to_process:
+        basename = Path(image_name).stem
         
+        # Resolve Ground Truth path
         if args.gt_folder.startswith(("r2://", "r2/")):
             gt_folder_cleaned = args.gt_folder.replace("r2://", "r2/")
-            gt_r2 = f"{gt_folder_cleaned.rstrip('/')}/{basename}.json"
+            gt_r2_path = f"{gt_folder_cleaned.rstrip('/')}/{basename}.json"
             try:
-                gt_path = download_r2_file(gt_r2, str(output_dir / "temp_gt"))
-            except:
-                gt_path = gt_r2
+                logger.info(f"Downloading GT from R2: {gt_r2_path}")
+                gt_path = download_r2_file(gt_r2_path, str(temp_gt_dir))
+            except Exception as e:
+                logger.warning(f"Could not download GT {gt_r2_path}: {e}")
+                gt_path = gt_r2_path # Fallback to path string (will trigger FileNotFoundError later)
         else:
             gt_path = f"{args.gt_folder.rstrip('/')}/{basename}.json"
-        
+            
         result = process_image(local_path, gt_path, args.model, args.compare_model, str(output_dir))
         results.append(result)
     
