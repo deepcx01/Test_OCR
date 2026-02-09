@@ -29,7 +29,6 @@ on:
         type: string
 
 env:
-  RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
   OCR_ENDPOINT_URL: ${{ secrets.OCR_ENDPOINT_URL }}
   R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
   R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
@@ -43,6 +42,15 @@ jobs:
     runs-on: ${{ inputs.runner_label }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          # Export loaded secrets as environment variables
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          RUNPOD_API_KEY: op://team-ds/integration-API-keys-AI-platforms/RUNPOD/default_default
       
       - uses: actions/setup-python@v5
         with:
@@ -102,12 +110,23 @@ jobs:
           # Upload using the alias 'r2' defined in configure step
           mc cp outputs/report.html "r2/$BUCKET/$REPORT_PATH" || true
           
-          # Generate presigned URL
-          REPORT_URL=$(mc share download --expire=1h "r2/$BUCKET/$REPORT_PATH" 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
+          # Generate presigned URL (1 day expiry)
+          # Capture output to file for debugging
+          mc --no-color share download --expire=24h "r2/$BUCKET/$REPORT_PATH" > presign.log 2>&1 || true
+          cat presign.log
+          
+          # Extract URL
+          REPORT_URL=$(grep -o 'https://[^ ]*' presign.log | head -1) || true
           
           if [ -n "$REPORT_URL" ]; then
              echo "Report URL: $REPORT_URL"
              echo "### 📊 [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
+             echo "" >> $GITHUB_STEP_SUMMARY
+             echo "*(Link expires in 24 hours)*" >> $GITHUB_STEP_SUMMARY
+          else
+             echo "Failed to generate report URL."
+             echo "mc output:"
+             cat presign.log
           fi
       
       - name: Summary
