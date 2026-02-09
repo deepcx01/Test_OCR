@@ -106,6 +106,7 @@ jobs:
           REPORT_URL=$(mc share download --expire=1h "r2/$BUCKET/$REPORT_PATH" 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
           
           if [ -n "$REPORT_URL" ]; then
+             echo "Report URL: $REPORT_URL"
              echo "### 📊 [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
           fi
       
