@@ -20,43 +20,31 @@ from loguru import logger
 def list_r2_folder(r2_path: str) -> List[str]:
     """List image files in an R2 folder."""
     extensions = ['.jpg', '.jpeg', '.png', '.webp']
-    target_path = r2_path.replace("r2://", "r2/")
+    target_path = r2_path.replace("r2://", "")
     if not target_path.endswith("/"):
         target_path += "/"
     
     cmd = ["mc", "ls", target_path]
-    logger.info(f"debug: Executing command: {' '.join(cmd)}")
-    
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
         logger.error(f"Failed to list R2 folder: {result.stderr}")
         return []
         
-    logger.info(f"debug: mc ls output (first 200 chars): {result.stdout[:200]!r}")
-    
+    if not result.stdout.strip():
+        logger.warning(f"R2 folder appears empty: {target_path}")
+        return []
+
     files = []
     for line in result.stdout.strip().split('\n'):
         if not line:
             continue
-        # mc ls output format: [DATE] [TIME] [SIZE] [STORAGE_CLASS] filename
-        # Example: [2026-02-05 09:34:15 UTC] 391KiB STANDARD Input_1.jpg
-        # We need to split by spaces, but handle filenames with spaces
         parts = line.split()
         if len(parts) >= 5:
-            # Index 0-2: Date/Time/Zone
-            # Index 3: Size
-            # Index 4: Storage Class (e.g. STANDARD)
-            # Index 5+: Filename (joined back)
-            
-            # Find the index where the filename likely starts (after STANDARD)
-            start_index = 5
-            filename = " ".join(parts[start_index:])
-            
+            filename = " ".join(parts[5:])
             if any(filename.lower().endswith(ext) for ext in extensions):
                 files.append(filename)
     
-    logger.info(f"debug: Parsed {len(files)} files: {files[:5]}")
     return sorted(files)
 
 
@@ -65,7 +53,9 @@ def download_r2_file(r2_path: str, local_dir: str) -> str:
     local_path = Path(local_dir) / Path(r2_path).name
     local_path.parent.mkdir(parents=True, exist_ok=True)
     
-    cmd = ["mc", "cp", r2_path.replace("r2://", "r2/"), str(local_path)]
+    # Strip protocol if present but keep the rest as is (alias/bucket/path)
+    target_path = r2_path.replace("r2://", "")
+    cmd = ["mc", "cp", target_path, str(local_path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
@@ -104,6 +94,7 @@ def process_image(
         
         try:
             gt_text = load_text_file(gt_path)
+            result["gt_text"] = gt_text
             gt_sim = compute_similarity(gt_text, ocr_result.custom_text)
             result["gt_comparison"] = {
                 "similarity": gt_sim.similarity_score,
@@ -111,7 +102,7 @@ def process_image(
                 "correct_words": gt_sim.correct_words,
                 "missing_count": len(gt_sim.missing_words),
             }
-            logger.info(f"  Match: {gt_sim.similarity_score:.1f}% | Missing: {len(gt_sim.missing_words)}")
+            logger.info(f"  Match: {gt_sim.similarity_score:.1f}%")
         except FileNotFoundError:
             logger.warning(f"  GT not found: {gt_path}")
             result["gt_comparison"] = None
@@ -185,23 +176,13 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    is_r2 = args.images_folder.startswith(("r2://", "r2/"))
+    images_path = Path(args.images_folder)
+    is_r2 = args.images_folder.startswith(("r2://", "r2/")) or not images_path.exists()
     
     if is_r2:
         image_files = list_r2_folder(args.images_folder)
         logger.info(f"Found {len(image_files)} images in R2")
         
-        # Debug: List GT folder to verify naming
-        if args.gt_folder.startswith(("r2://", "r2/")):
-            gt_folder = args.gt_folder.replace("r2://", "r2/")
-            logger.info(f"Debug: Listing GT folder: {gt_folder}")
-            try:
-                available_gt = list_r2_folder(gt_folder)
-                logger.info(f"Debug: Found {len(available_gt)} files in GT folder")
-                if available_gt:
-                    logger.info(f"Debug: First few GT files: {available_gt[:5]}")
-            except Exception as e:
-                logger.warning(f"Debug: Failed to list GT folder: {e}")
         
         temp_dir = output_dir / "temp_images"
         temp_dir.mkdir(exist_ok=True)
@@ -232,15 +213,16 @@ def main():
         basename = Path(image_name).stem
         
         # Resolve Ground Truth path
-        if args.gt_folder.startswith(("r2://", "r2/")):
-            gt_folder_cleaned = args.gt_folder.replace("r2://", "r2/")
+        gt_is_r2 = args.gt_folder.startswith(("r2://", "r2/")) or not Path(args.gt_folder).exists()
+        if gt_is_r2:
+            gt_folder_cleaned = args.gt_folder.replace("r2://", "")
             gt_r2_path = f"{gt_folder_cleaned.rstrip('/')}/{basename}.json"
             try:
                 logger.info(f"Downloading GT from R2: {gt_r2_path}")
                 gt_path = download_r2_file(gt_r2_path, str(temp_gt_dir))
             except Exception as e:
                 logger.warning(f"Could not download GT {gt_r2_path}: {e}")
-                gt_path = gt_r2_path # Fallback to path string (will trigger FileNotFoundError later)
+                gt_path = gt_r2_path 
         else:
             gt_path = f"{args.gt_folder.rstrip('/')}/{basename}.json"
             

@@ -24,7 +24,6 @@ def extract_custom_text(ocr_json: Union[str, Path, Dict]) -> str:
         data = ocr_json
     
     # Handle different JSON structures
-    # Check for direct fields or fields nested in "data"
     search_keys = ["custom_text", "custom_texts", "text"]
     
     # Check top-level first

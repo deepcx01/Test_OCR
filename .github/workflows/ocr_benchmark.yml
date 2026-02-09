@@ -62,14 +62,6 @@ jobs:
           chmod +x mc && sudo mv mc /usr/local/bin/
           mc alias set r2 "$R2_ENDPOINT" "$R2_ACCESS_KEY" "$R2_SECRET_KEY"
       
-      - name: Memory Monitor
-        run: |
-          while true; do
-            echo "--- Memory Usage ---"
-            free -m
-            sleep 5
-          done &
-      
       - name: Debug R2 Structure
         run: |
           echo "Listing bucket root..."
@@ -111,7 +103,7 @@ jobs:
           mc cp outputs/report.html "r2/$BUCKET/$REPORT_PATH" || true
           
           # Generate presigned URL
-          REPORT_URL=$(mc share download --expire=168h "r2/$BUCKET/$REPORT_PATH" 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
+          REPORT_URL=$(mc share download --expire=1h "r2/$BUCKET/$REPORT_PATH" 2>/dev/null | grep -o 'https://[^ ]*' | head -1) || true
           
           if [ -n "$REPORT_URL" ]; then
              echo "### 📊 [View Report]($REPORT_URL)" >> $GITHUB_STEP_SUMMARY
@@ -125,8 +117,3 @@ jobs:
           cat outputs/summary.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
       
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ocr-outputs-${{ github.run_number }}
-          path: outputs/
-          retention-days: 30
